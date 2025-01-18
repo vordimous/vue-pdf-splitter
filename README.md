@@ -1,14 +1,8 @@
 # pdf-test
 
-This template should help get you started developing with Vue 3 in Vite.
+Building a PDF page splitter using [vue-pdf](https://github.com/TaTo30/vue-pdf) and [vueUse](https://github.com/vueuse/vueuse).
 
-## Recommended IDE Setup
-
-[VSCode](https://code.visualstudio.com/) + [Volar](https://marketplace.visualstudio.com/items?itemName=Vue.volar) (and disable Vetur).
-
-## Customize configuration
-
-See [Vite Configuration Reference](https://vite.dev/config/).
+![](./pdf-split.gif)
 
 ## Project Setup
 
@@ -27,10 +21,3 @@ npm run dev
 ```sh
 npm run build
 ```
-
-
-git init
-git commit -m "feat: add pdf splitting component"
-git branch -M main
-git remote add origin git@github.com:vordimous/vue-pdf-splitter.git
-git push -u origin main

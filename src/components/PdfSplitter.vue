@@ -52,8 +52,6 @@ function initUseDropZoneSortable(index: number, el: HTMLElement | any | null) {
             if (dragOrigIndex === dragDestIndex && e.oldIndex !== undefined && e.newIndex !== undefined) {
                 moveArrayElement(newPdfs[dragOrigIndex], e.oldIndex, e.newIndex)
             }
-            nextTick(() => {
-            })
         },
         onEnd: (e) => {
             if (dragOrigIndex !== dragDestIndex && e.oldIndex !== undefined) {

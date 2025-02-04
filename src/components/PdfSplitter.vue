@@ -1,12 +1,18 @@
 <template>
     <input type="range" min=".15" max="1" step=".05" v-model="scale" class="slider">
     <div class="pdf-document" v-for="(doc, index) in docs" :id="`new-pdf-document-${index}`" :key="index"
-        :ref="(el) => { initUseDropZone(doc, el); initUseSortable(doc, el) }":class="{ 'pdf-document-drop': doc.hover }">
-      <div v-if="doc.pages.length === 0" class="pdf-document-new">
-        <div>Drag Here to Create</div>
+        :ref="(el) => { initUseDropZone(doc, el); initUseSortable(doc, el) }":class="{ 'pdf-document-drop': doc.hover }">      
+      <div v-if="docs.length != index + 1 " class="pdf-document-header">
+        <button @click="() => removeDoc(doc, index)">Delete</button>
+        <input type="text" :value="doc.name"/>
       </div>
-      <div v-for="page in doc.pages" :key="page" class="pdf-document-page">
-        <VuePDF :pdf="pdf" :page="page" :scale="scale" />
+      <div v-if="doc.pages.length === 0" class="pdf-document-new">
+        <p>Drag Here to Create</p>
+      </div>
+
+      <div v-for="(page, index) in doc.pages" :key="page?.pageNumber" class="pdf-document-page">
+        <VuePDF :pdf="pdf" :page="page.pageNumber" :scale="scale" :rotation="page.rotation" />
+        <button @click="() => page.rotation -= 90"><</button><button @click="() => page.rotation += 90">></button><button @click="removePage(doc, index)">x</button>
       </div>
     </div>
 </template>
@@ -19,21 +25,27 @@ const { pdf, pages: totalPdfPages } = usePDF('https://mozilla.github.io/pdf.js/w
 import { useDropZone } from '@vueuse/core'
 import { useSortable, moveArrayElement } from '@vueuse/integrations/useSortable'
 
+type Page = {
+  pageNumber: number;
+  rotation: number;
+};
 type Doc = {
   index: number;
-  pages: Reactive<number[]>;
+  pages: Reactive<Page[]>;
   name: string;
   hover: boolean;
 };
 function addEmptyDoc() {
-  docs.push({ index: docs.length, pages: [], name: "", hover: false, })
+  docs.push({ index: docs.length, pages: [], name: "", hover: false })
 }
 const docs: Reactive<Doc[]> = reactive<Reactive<Doc[]>>([])
 addEmptyDoc()
 
 // when the PDF has updated the pages, load them into the splitter
 watch(totalPdfPages, (p) => {
-  docs[0].pages.push(...Array.from({ length: p - 1 }, (_, index) => index + 1))
+  Array.from({ length: p - 1 }, (_, index) => index + 1).forEach((n) => {
+      docs[0].pages.push({pageNumber: n, rotation: 0})
+  })
   docs[0].name = "tracemonkey-pldi-09.pdf"
   nextTick(() => {
     addEmptyDoc()
@@ -64,7 +76,7 @@ function initUseDropZone(doc: Doc, el: HTMLElement | any | null) {
 }
 function initUseSortable(doc: Doc, el: HTMLElement | any | null) {
   useSortable(el, doc.pages, {
-    onStart: () => {
+    onStart: (e) => {
       dragOrig = doc
       dragDest = doc
     },
@@ -79,16 +91,27 @@ function initUseSortable(doc: Doc, el: HTMLElement | any | null) {
       if (dragOrig !== undefined && dragDest !== undefined
         && dragOrig !== dragDest && e.oldIndex !== undefined) {
         // move the page from its starting index in the Origin to the end of the Dest
-        dragDest.pages.push(dragOrig.pages[e.oldIndex])
-        dragOrig.pages.splice(e.oldIndex, 1);
+        const pageArrayIndex = e.oldIndex - 1
+        if (dragOrig.pages[pageArrayIndex]?.pageNumber > 0) {
+            dragDest.pages.push(dragOrig.pages[pageArrayIndex])
+            dragOrig.pages.splice(pageArrayIndex, 1);
+        }
+
       }
       // Add new doc
-      var emptyDocs = docs.filter((a) => a.pages.length === 0).length
-      if (emptyDocs === 0) {
+      if (docs.filter((a) => a.pages.length === 0).length === 0) {
         addEmptyDoc()
       }
     },
   })
+}
+
+function removePage(doc: Doc, index: Number) {
+    doc.pages.splice(index, 1)
+}
+
+function removeDoc(doc: Doc, index: Number) {
+    docs.splice(index, 1)
 }
 
 const scale = ref(.20)
@@ -108,6 +131,14 @@ body {
     width: 80vw;
     min-height: 75px;
     margin: 5px;
+}
+.pdf-document .pdf-document-header {
+  border: 1px solid grey;
+  padding: 3px;
+  color: black;
+  display: flex;
+  justify-content: left;
+  width: 100%;
 }
 
 .pdf-document .pdf-document-new {

@@ -1,4 +1,5 @@
 <template>
+    <input type="range" min=".15" max="1" step=".05" v-model="scale" class="slider">
     <div class="pdf-document" v-for="(doc, index) in docs" :id="`new-pdf-document-${index}`" :key="index"
         :ref="(el) => { initUseDropZone(doc, el); initUseSortable(doc, el) }":class="{ 'pdf-document-drop': doc.hover }">
       <div v-if="doc.pages.length === 0" class="pdf-document-new">
@@ -90,7 +91,7 @@ function initUseSortable(doc: Doc, el: HTMLElement | any | null) {
   })
 }
 
-const scale = ref(.15)
+const scale = ref(.20)
 
 </script>
 

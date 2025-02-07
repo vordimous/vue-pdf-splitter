@@ -2,21 +2,23 @@
   <button @click="() => addPageGroup({})">New Page</button>
   <input type="range" min=".15" max="1" step=".05" v-model="scale" class="slider">
   <div class="pdf-document" v-for="(pageGroup, index) in allPageGroups" :id="`new-pdf-document-${index}`" :key="index"
-    :ref="(el) => pageGroup.pageElRef = el" :class="{ 'pdf-document-drop': pageGroup.hover }">
+     :class="{ 'pdf-document-drop': pageGroup.hover }">
     <div class="pdf-document-header">
-      <button @click="() => removeDoc(pageGroup, index)">Delete</button>
-      <input type="text" :value="pageGroup.name" />
-      <button @click="() => downloadDoc(pageGroup, index)">Download</button>
+      <button @click="() => downloadDoc(pageGroup)">Download</button>
+      <input type="text" style="width: 100%;" :value="pageGroup.name" />
+      <button @click="() => removeDoc(index)">Delete</button>
     </div>
-    <div v-if="pageGroup.pages.length === 0" class="pdf-document-new">
-      <p>Drag Here to Create</p>
-    </div>
-
-    <div v-for="(page, index) in pageGroup.pages" :key="page?.pageNumber" class="pdf-document-page">
-      <VuePDF :pdf="pdfPageViewer" :page="page.pageNumber" :scale="scale" :rotation="page.rotation" />
-      <button @click="() => page.rotation -= 90"><</button><button @click="() => page.rotation += 90">></button><button
-            @click="removePage(pageGroup, index)">x</button>
-          <p>{{ page.pageNumber }}</p>
+    <div :ref="(el) => pageGroup.pageElRef = el" class="pdf-document-body">
+      <div v-if="pageGroup.pages.length === 0" class="pdf-document-new">
+        <p>Drag Here to Create</p>
+      </div>
+      <div v-for="(page, index) in pageGroup.pages" :key="page.pageNumber" class="pdf-document-page">
+        <p>PAGE</p>
+        <VuePDF :pdf="pdfPageViewer" :page="page.pageNumber" :scale="scale" :rotation="page.rotation" />
+        <button @click="() => page.rotation -= 90"><</button><button @click="() => page.rotation += 90">></button><button
+              @click="removePage(pageGroup, index)">x</button>
+            <p>{{ page.pageNumber }} | {{ index }}</p>
+      </div>
     </div>
   </div>
   <iframe :src="iframeSrc" style="width: 100%; height: 100%;"></iframe>
@@ -27,9 +29,9 @@ import * as PDFJS from 'pdfjs-dist';
 import LegacyWorker from 'pdfjs-dist/legacy/build/pdf.worker.min?url';
 PDFJS.GlobalWorkerOptions.workerSrc = LegacyWorker
 import { PDFDocument } from 'pdf-lib'
-import { nextTick, watchEffect, reactive, Reactive, ref, Ref, onMounted, watch } from 'vue'
+import { nextTick, Reactive, ref, Ref, onMounted } from 'vue'
 import { VuePDF } from '@tato30/vue-pdf'
-import { useDropZone, watchOnce } from '@vueuse/core'
+import { useDropZone } from '@vueuse/core'
 import { useSortable, moveArrayElement } from '@vueuse/integrations/useSortable'
 
 const props = defineProps({
@@ -62,7 +64,6 @@ function numArray(size: number, shift: number = 0): number[] {
   return Array.from({ length: size }, (_, index) => index + shift)
 }
 
-
 type Page = {
   pageNumber: number;
   rotation: number;
@@ -72,7 +73,7 @@ type PageGroup = {
   pages: Reactive<Page[]>;
   name: string;
   hover: boolean;
-  pageElRef: HTMLElement;
+  pageElRef: HTMLElement | any;
 };
 
 function addPageGroup(pg: PageGroup | any) {
@@ -81,6 +82,9 @@ function addPageGroup(pg: PageGroup | any) {
     name: "",
     ...pg,
     hover: false,
+  })
+  nextTick(() => {
+    allPageGroups.value.forEach(initDragDrop);
   })
 }
 
@@ -109,9 +113,6 @@ onMounted(async () => {
     })
   })
   addPageGroup({})
-  nextTick(() => {
-    allPageGroups.value.forEach(initDragDrop);
-  })
 })
 
 var dragOrig: PageGroup | undefined
@@ -129,55 +130,43 @@ function initUseDropZone(pageGroup: PageGroup) {
     onDrop: () => {
       dragDest = pageGroup
       pageGroup.hover = false
-      console.log("onDrop.hover", pageGroup.name)
     },
     onOver: () => {
       nextTick(() => {
         pageGroup.hover = true
-        console.log("onOver.hover", pageGroup.name)
       })
     },
     onLeave: () => {
       nextTick(() => {
         pageGroup.hover = false
-        console.log("onLeave.hover", pageGroup.name)
       })
     }
   })
 }
 function initUseSortable(pageGroup: PageGroup) {
-  console.log("initUseSortable", pageGroup.pages.map(({ pageNumber }) => (pageNumber)))
   useSortable(pageGroup.pageElRef, pageGroup.pages, {
-    onStart: (e) => {
+    onStart: () => {
       dragOrig = pageGroup
       dragDest = pageGroup
     },
     onUpdate: (e) => {
       // only update the sortable order if the drop is in the same document
-      console.log("onUpdate")
       if (dragOrig !== undefined && dragDest !== undefined && dragOrig === dragDest
         && e.oldIndex !== undefined && e.newIndex !== undefined) {
         moveArrayElement(pageGroup.pages, e.oldIndex, e.newIndex)
-        console.log("onUpdate", pageGroup.pages.map(({ pageNumber }) => (pageNumber)))
       }
     },
     onEnd: (e) => {
       if (dragOrig !== undefined && dragDest !== undefined
         && dragOrig !== dragDest && e.oldIndex !== undefined) {
-          console.log("onEnd")
         // move the page from its starting index in the Origin to the end of the Dest
-        const pageArrayIndex = e.oldIndex - 1
-        if (dragOrig.pages[pageArrayIndex]?.pageNumber > 0) {
-          dragDest.pages.push(dragOrig.pages[pageArrayIndex])
-          dragOrig.pages.splice(pageArrayIndex, 1)
-          console.log("onEnd", pageGroup.pages.map(({ pageNumber }) => (pageNumber)))
-        }
-
+        dragDest.pages.push(dragOrig.pages[e.oldIndex])
+        dragOrig.pages.splice(e.oldIndex, 1);
       }
       // Add new pageGroup
-      // if (allPageGroups.filter((a) => a.pages.length === 0).length === 0) {
-      //   addEmptyPageGroup()
-      // }
+      if (allPageGroups.value.filter((a) => a.pages.length === 0).length === 0) {
+        addPageGroup({})
+      }
     },
   })
 }
@@ -185,21 +174,15 @@ function initUseSortable(pageGroup: PageGroup) {
 function removePage(pageGroup: PageGroup, index: Number) {
   pageGroup.pages.splice(index, 1)
 }
-function removeDoc(pageGroup: PageGroup, index: Number) {
-  pageGroup.splice(index, 1)
+function removeDoc(index: Number) {
+  allPageGroups.value.splice(index, 1)
 }
 async function downloadDoc(pageGroup: PageGroup) {
 
   const newPdf = await PDFDocument.create()
 
-  // console.log(newPdf.getPageCount())
-  // for (const page of pageGroup.pages) {
-  //   var pageIndex = page.pageNumber - 1
-  //   console.log("num", page.pageNumber, pageIndex)
-  //   var [copiedPage] = await newPdf.copyPages(getPdfDocument(page._pdfKey), [pageIndex])
-  //   newPdf.addPage(copiedPage)
-  // }
-  // console.log(newPdf.getPageCount())
+  var copiedPages = await newPdf.copyPages(pdfDataDocument, pageGroup.pages.map(({pageNumber}) => (pageNumber - 1)))
+  copiedPages.forEach(p => newPdf.addPage(p));
 
   console.log("loading")
   iframeSrc.value = await newPdf.saveAsBase64({ dataUri: true });
@@ -219,16 +202,11 @@ body {
 
 .pdf-document {
   background-color: lightgray;
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: left;
-  align-items: center;
   width: 80vw;
-  min-height: 75px;
   margin: 5px;
 }
 
-.pdf-document .pdf-document-header {
+.pdf-document-header {
   border: 1px solid grey;
   padding: 3px;
   color: black;
@@ -237,7 +215,7 @@ body {
   width: 100%;
 }
 
-.pdf-document .pdf-document-new {
+.pdf-document-new {
   border: 1px dashed grey;
   color: black;
   display: flex;
@@ -247,7 +225,17 @@ body {
   height: 100px;
 }
 
-.pdf-document .pdf-document-page {
+.pdf-document-body {
+  background-color: lightgray;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: left;
+  align-items: center;
+  min-height: 75px;
+  margin: 5px;
+}
+
+.pdf-document-page {
   cursor: grab;
   background-color: grey;
   padding: 3px;

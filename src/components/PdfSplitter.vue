@@ -1,52 +1,66 @@
 <template>
-  <button @click="() => addPageGroup({})">New Page</button>
-  <input type="range" min=".15" max="1" step=".05" v-model="scale" class="slider">
-  <div class="pdf-document" v-for="(pageGroup, index) in allPageGroups" :id="`new-pdf-document-${index}`" :key="index"
-     :class="{ 'pdf-document-drop': pageGroup.hover }">
+  <div
+    v-for="(pageGroup, pgIndex) in allPageGroups"
+    :id="`new-pdf-document-${pgIndex}`" 
+    :key="pgIndex"
+    class="pdf-document" 
+    :class="{ 'pdf-document-drop': pageGroup.hover }">
     <div class="pdf-document-header">
       <button @click="() => downloadDoc(pageGroup)">Download</button>
       <input type="text" style="width: 100%;" :value="pageGroup.name" />
-      <button @click="() => removeDoc(index)">Delete</button>
+      <button @click="() => removeDoc(pgIndex)">Delete</button>
     </div>
-    <div :ref="(el) => pageGroup.pageElRef = el" class="pdf-document-body">
-      <div v-if="pageGroup.pages.length === 0" class="pdf-document-new">
-        <p>Drag Here to Create</p>
+    <div :ref="(el: any) => pageGroup.pageElRef = el" class="pdf-document-body">
+      <div v-if="pageGroup.pages.length === 0" class="pdf-document-empty">
+        <p>Drag page here to add to New Doc</p>
       </div>
-      <div v-for="(page, index) in pageGroup.pages" :key="page.pageNumber" class="pdf-document-page">
-        <p>PAGE</p>
-        <VuePDF :pdf="pdfPageViewer" :page="page.pageNumber" :scale="scale" :rotation="page.rotation" />
-        <button @click="() => page.rotation -= 90"><</button><button @click="() => page.rotation += 90">></button><button
-              @click="removePage(pageGroup, index)">x</button>
-            <p>{{ page.pageNumber }} | {{ index }}</p>
+      <div  v-for="(page, pIndex) in pageGroup.pages" :key="page.pageNumber" class="pdf-document-page-group">
+        <div class="pdf-document-page">
+          <VuePDF :pdf="pdfPageViewer" :page="page.pageNumber" :scale="scale" :rotation="page.rotation" class="pdf-viewer" />
+          <div class="page-buttons">
+            <button @click="() => page.rotation -= 90"><</button><button @click="() => page.rotation += 90">></button><button
+            @click="removePage(pageGroup, pIndex)">x</button>
+          </div>
+        </div>
+        <div v-if="pIndex != pageGroup.pages.length - 1" class="pdf-document-split" @click="splitDoc(pageGroup, pIndex)">
+          <div class="dashed-line"></div>
+          <div class="dashed-spacer"></div>
+        </div>
       </div>
     </div>
   </div>
-  <iframe :src="iframeSrc" style="width: 100%; height: 100%;"></iframe>
 </template>
 
 <script lang="ts" setup>
-import * as PDFJS from 'pdfjs-dist';
+import { GlobalWorkerOptions, PDFDocumentLoadingTask, getDocument } from 'pdfjs-dist';
 import LegacyWorker from 'pdfjs-dist/legacy/build/pdf.worker.min?url';
-PDFJS.GlobalWorkerOptions.workerSrc = LegacyWorker
-import { PDFDocument } from 'pdf-lib'
-import { nextTick, Reactive, ref, Ref, onMounted } from 'vue'
+GlobalWorkerOptions.workerSrc = LegacyWorker
+import { PDFDocument, degrees } from 'pdf-lib'
+import { watch, nextTick, Reactive, ref, Ref, onMounted } from 'vue'
 import { VuePDF } from '@tato30/vue-pdf'
 import { useDropZone } from '@vueuse/core'
 import { useSortable, moveArrayElement } from '@vueuse/integrations/useSortable'
 
-const props = defineProps({
-  preLoadPdfUrls: Array<string>,
+const { urls, scale } = defineProps({
+  urls: {
+    type: Array<string>,
+    default: () => [],
+  },
+  scale: {
+    type: Number,
+    default: () => .2,
+  },
 })
 
-const pdfPageViewer:Ref<PDFJS.PDFDocumentLoadingTask> = ref()
-var pdfDataDocument:PDFDocument
+const pdfPageViewer: Ref<PDFDocumentLoadingTask | undefined> = ref()
+var pdfDataDocument: PDFDocument
 
 async function addPdfPagesFromUrl(url: string): Promise<number> {
   const arrayBuffer = await fetch(url).then(res => res.arrayBuffer())
   return await addPdfPages(arrayBuffer)
 }
 
-async function addPdfPages(arrayBuffer:ArrayBuffer): Promise<number> {
+async function addPdfPages(arrayBuffer: ArrayBuffer): Promise<number> {
   var pdfDocument = await PDFDocument.load(arrayBuffer)
   var copiedPages = await pdfDataDocument.copyPages(pdfDocument, numArray(pdfDocument.getPageCount()))
   copiedPages.forEach((page) => {
@@ -56,7 +70,7 @@ async function addPdfPages(arrayBuffer:ArrayBuffer): Promise<number> {
 }
 
 async function renderPdfPages() {
-  const loadingTask = PDFJS.getDocument(await pdfDataDocument.save())
+  const loadingTask = getDocument(await pdfDataDocument.save())
   pdfPageViewer.value = loadingTask
 }
 
@@ -92,35 +106,46 @@ const allPageGroups: Ref<PageGroup[]> = ref<PageGroup[]>([])
 
 onMounted(async () => {
   pdfDataDocument = await PDFDocument.create()
-  var loadedDocs = await Promise.all(props.preLoadPdfUrls.map(async (url) => {
-    var numOfPages = await addPdfPagesFromUrl(url)
-    return {
-      url,
-      numOfPages
+  downloadPdfs(urls)
+})
+
+watch(() => urls, async (newUrls) => await downloadPdfs(newUrls), { deep: true })
+const pageScale = ref(scale || .20)
+watch(() => scale, (newScale) => {pageScale.value = newScale || pageScale.value} )
+
+async function downloadPdfs(urls: string[] | undefined) {
+  var loadedDocs: { url: string, numOfPages: number }[] = []
+  await Promise.all((urls || []).map(async (url) => {
+    try {
+      var numOfPages = await addPdfPagesFromUrl(url)
+      loadedDocs.push({
+        url,
+        numOfPages
+      })
+    } catch (e) {
+      console.error(e)
     }
   }))
 
   await renderPdfPages()
   var allPageNums = numArray(pdfDataDocument.getPageCount(), 1)
   loadedDocs.forEach(({
-      url,
-      numOfPages
-    }) => {
+    url,
+    numOfPages
+  }) => {
 
     addPageGroup({
       pages: numArray(numOfPages, 1).map(() => ({ pageNumber: allPageNums.shift(), rotation: 0 })),
-      name: url,
+      name: url.substring(url.lastIndexOf('/') + 1),
     })
   })
-  addPageGroup({})
-})
+}
 
 var dragOrig: PageGroup | undefined
 var dragDest: PageGroup | undefined
 
 function initDragDrop(pg: PageGroup) {
   if (pg.pageElRef) {
-    console.log('Init drag drop', pg.name)
     initUseDropZone(pg)
     initUseSortable(pg)
   }
@@ -163,35 +188,31 @@ function initUseSortable(pageGroup: PageGroup) {
         dragDest.pages.push(dragOrig.pages[e.oldIndex])
         dragOrig.pages.splice(e.oldIndex, 1);
       }
-      // Add new pageGroup
-      if (allPageGroups.value.filter((a) => a.pages.length === 0).length === 0) {
-        addPageGroup({})
-      }
     },
   })
 }
 
-function removePage(pageGroup: PageGroup, index: Number) {
+function removePage(pageGroup: PageGroup, index: number) {
   pageGroup.pages.splice(index, 1)
 }
-function removeDoc(index: Number) {
+function splitDoc(pageGroup: PageGroup, index: number) {
+  var remainingPages = pageGroup.pages.splice(index + 1)
+  addPageGroup({name: `x_${pageGroup.name}`, pages: remainingPages})
+}
+function removeDoc(index: number) {
   allPageGroups.value.splice(index, 1)
 }
 async function downloadDoc(pageGroup: PageGroup) {
-
   const newPdf = await PDFDocument.create()
 
-  var copiedPages = await newPdf.copyPages(pdfDataDocument, pageGroup.pages.map(({pageNumber}) => (pageNumber - 1)))
-  copiedPages.forEach(p => newPdf.addPage(p));
+  var copiedPages = await newPdf.copyPages(pdfDataDocument, pageGroup.pages.map(({ pageNumber }) => (pageNumber - 1)))
+  copiedPages.forEach((p, i) => {
+    p.setRotation(degrees(pageGroup.pages[i].rotation))
+    newPdf.addPage(p)
+  });
 
-  console.log("loading")
-  iframeSrc.value = await newPdf.saveAsBase64({ dataUri: true });
-  console.log("loaded")
-
+  window.open(await newPdf.saveAsBase64({ dataUri: true }), '_blank');
 }
-
-const scale = ref(.20)
-const iframeSrc = ref('')
 
 </script>
 
@@ -202,29 +223,36 @@ body {
 
 .pdf-document {
   background-color: lightgray;
-  width: 80vw;
+  width: 60vw;
   margin: 5px;
+  padding-top: 5px;
+  padding-bottom: 5px;
 }
-
 .pdf-document-header {
-  border: 1px solid grey;
-  padding: 3px;
+  padding: 6px;
   color: black;
   display: flex;
   justify-content: left;
-  width: 100%;
+  align-items: center;
 }
-
-.pdf-document-new {
-  border: 1px dashed grey;
-  color: black;
+.pdf-document-header .filename-input {
+  width: 100%;
+  margin-left: var(--sp-2);
+  margin-right: var(--sp-2);
+}
+.pdf-document-empty {
+  margin-top: 10px;
+  background-color: var(--gray-50);
+  border: 2px dashed var(--gray-300);
+  color: var(--gray-400);
+  font-size: 14px;
+  font-weight: 500;
   display: flex;
   align-items: center;
   justify-content: center;
   width: 100%;
   height: 100px;
 }
-
 .pdf-document-body {
   background-color: lightgray;
   display: flex;
@@ -232,17 +260,57 @@ body {
   justify-content: left;
   align-items: center;
   min-height: 75px;
-  margin: 5px;
+  margin: 10px;
+  padding: 0px 10px 10px 10px;
 }
-
-.pdf-document-page {
+.pdf-document-page-group {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: left;
+}
+.pdf-document-page-group .pdf-document-page {
   cursor: grab;
-  background-color: grey;
-  padding: 3px;
-  margin: 3px;
+  margin-top: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
-
+.pdf-document-page-group .pdf-document-page .pdf-viewer {
+  border: 2px solid grey;
+}
+.pdf-document-page-group .pdf-document-page:not(:hover) .page-buttons {
+  display: none;
+}
+.pdf-document-page-group .pdf-document-page .page-buttons {
+  position: absolute;
+  background-color: rgba(95, 97, 110, 0.7);
+  border-radius: 0.5em;
+  padding: 3px;
+}
+.pdf-document-page-group .pdf-document-split {
+  cursor: col-resize;
+  margin-top: 10px;
+  padding-left: 6px;
+  padding-right: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.pdf-document-page-group .pdf-document-split:not(:hover) .dashed-line {
+  display: none;
+}
+.pdf-document-page-group .pdf-document-split .dashed-line {
+  border-right: 1px dashed black;
+  height: 85%;
+}
+.pdf-document-page-group .pdf-document-split:hover .dashed-spacer {
+  display: none;
+}
+.pdf-document-page-group .pdf-document-split .dashed-spacer {
+  border-right: 1px solid lightgray;
+}
 .pdf-document-drop {
   background-color: var(--gray-200);
 }
+
 </style>
